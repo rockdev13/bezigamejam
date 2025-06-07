@@ -23,13 +23,18 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
     public float frequencyTolerance = 0.05f; // 5% tolerance for frequency matching
     public int minTrackLength = 3; // Minimum frames to consider a valid track
     public float trackDecayTime = 0.2f; // Time before a track is considered ended
-    public float minNoteDuration = 0.1f; // Minimum duration to create a sustained note
+    
+    [Header("Note Detection Settings")]
+    public float noteOnsetThreshold = 2.0f; // Magnitude multiplier for note onset detection
+    public float noteDecayThreshold = 0.3f; // Minimum magnitude ratio to continue a note
+    public float minNoteDuration = 0.05f; // Minimum duration for a valid note
+    public float noteGapTime = 0.1f; // Minimum gap between separate notes of same frequency
 
     [Header("Curve Generation Settings")]
+    public float peakDuration = 0.1f; // How long the peak stays at maximum height
     public float maxSpikeHeight = 1f;
     public bool logarithmicPitchMapping = true;
     public bool combineOverlappingSpikes = true;
-    public bool createRectangularNotes = true; // New option for rectangular vs spike notes
 
     [Header("Generated Curve")]
     public AnimationCurve generatedCurve;
@@ -47,12 +52,23 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
 
     void OnGUI() {
         scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+
         GUILayout.Label("Enhanced Audio to Animation Curve Generator", EditorStyles.boldLabel);
+        GUILayout.Space(10);
+
+        // Note Detection Settings Section
+        GUILayout.Label("Note Detection Settings", EditorStyles.boldLabel);
+        noteOnsetThreshold = EditorGUILayout.Slider("Note Onset Threshold", noteOnsetThreshold, 1.2f, 5f);
+        noteDecayThreshold = EditorGUILayout.Slider("Note Decay Threshold", noteDecayThreshold, 0.1f, 0.8f);
+        minNoteDuration = EditorGUILayout.Slider("Min Note Duration (s)", minNoteDuration, 0.01f, 0.2f);
+        noteGapTime = EditorGUILayout.Slider("Note Gap Time (s)", noteGapTime, 0.05f, 0.5f);
+
         GUILayout.Space(10);
 
         // Audio Input Section
         GUILayout.Label("Audio Input", EditorStyles.boldLabel);
         audioClip = (AudioClip)EditorGUILayout.ObjectField("Audio Clip", audioClip, typeof(AudioClip), false);
+
         GUILayout.Space(10);
 
         // FFT Analysis Settings Section
@@ -62,6 +78,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             new int[] { 256, 512, 1024, 2048, 4096 });
         overlapFactor = EditorGUILayout.Slider("Window Overlap", overlapFactor, 0f, 0.9f);
         windowType = (FFTWindow)EditorGUILayout.EnumPopup("Window Type", windowType);
+
         GUILayout.Space(10);
 
         // Peak Detection Settings Section
@@ -71,6 +88,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         maxPeaksPerFrame = EditorGUILayout.IntSlider("Max Peaks Per Frame", maxPeaksPerFrame, 1, 20);
         minFrequency = EditorGUILayout.FloatField("Min Frequency (Hz)", minFrequency);
         maxFrequency = EditorGUILayout.FloatField("Max Frequency (Hz)", maxFrequency);
+
         GUILayout.Space(10);
 
         // Frequency Tracking Settings Section
@@ -78,15 +96,16 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         frequencyTolerance = EditorGUILayout.Slider("Frequency Tolerance", frequencyTolerance, 0.01f, 0.2f);
         minTrackLength = EditorGUILayout.IntSlider("Min Track Length", minTrackLength, 1, 10);
         trackDecayTime = EditorGUILayout.Slider("Track Decay Time (s)", trackDecayTime, 0.05f, 1f);
-        minNoteDuration = EditorGUILayout.Slider("Min Note Duration (s)", minNoteDuration, 0.05f, 1f);
+
         GUILayout.Space(10);
 
         // Curve Generation Settings Section
         GUILayout.Label("Curve Generation Settings", EditorStyles.boldLabel);
+        peakDuration = EditorGUILayout.Slider("Peak Duration (s)", peakDuration, 0.01f, 1f);
         maxSpikeHeight = EditorGUILayout.FloatField("Max Spike Height", maxSpikeHeight);
         logarithmicPitchMapping = EditorGUILayout.Toggle("Logarithmic Pitch Mapping", logarithmicPitchMapping);
         combineOverlappingSpikes = EditorGUILayout.Toggle("Combine Overlapping Spikes", combineOverlappingSpikes);
-        createRectangularNotes = EditorGUILayout.Toggle("Create Rectangular Notes", createRectangularNotes);
+
         GUILayout.Space(20);
 
         // Generate Button
@@ -95,6 +114,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             GenerateAnimationCurve();
         }
         GUI.enabled = true;
+
         GUILayout.Space(10);
 
         // Analysis Status
@@ -102,13 +122,16 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             EditorGUIUtility.labelWidth = 0;
             EditorGUILayout.HelpBox(analysisStatus, MessageType.Info);
         }
+
         GUILayout.Space(10);
 
         // Generated Curve Section
         if (generatedCurve != null) {
             GUILayout.Label("Generated Curve", EditorStyles.boldLabel);
             generatedCurve = EditorGUILayout.CurveField("Animation Curve", generatedCurve);
+
             GUILayout.Space(10);
+
             if (GUILayout.Button("Save Curve as Asset")) {
                 SaveCurveAsAsset();
             }
@@ -138,13 +161,13 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             // Perform FFT analysis
             List<FrequencyPeak> allPeaks = PerformFFTAnalysis();
 
-            // Track frequencies over time to detect sustained notes
-            List<SustainedNote> sustainedNotes = TrackSustainedNotes(allPeaks);
+            // Track frequencies over time
+            List<NoteEvent> noteEvents = TrackFrequenciesOverTime(allPeaks);
 
-            // Generate animation curve from sustained notes
-            generatedCurve = CreateAnimationCurveFromSustainedNotes(sustainedNotes, audioClip.length);
+            // Generate animation curve from note events
+            generatedCurve = CreateAnimationCurveFromNotes(noteEvents, audioClip.length);
 
-            analysisStatus = $"Analysis complete! Found {sustainedNotes.Count} sustained notes from {allPeaks.Count} total peaks.";
+            analysisStatus = $"Analysis complete! Found {noteEvents.Count} note events from {allPeaks.Count} total peaks.";
 
             // Clean up
             DestroyImmediate(tempGO);
@@ -152,6 +175,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         catch (System.Exception e) {
             analysisStatus = $"Error during analysis: {e.Message}";
             Debug.LogError($"Audio analysis error: {e}");
+
             if (tempAudioSource != null && tempAudioSource.gameObject != null)
                 DestroyImmediate(tempAudioSource.gameObject);
         }
@@ -196,6 +220,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             ApplyWindowFunction(segment, windowType);
 
             // Perform FFT using Unity's built-in method
+            // Note: We'll use a workaround since Unity's GetSpectrumData requires playing audio
             Complex[] complexSpectrum = PerformFFT(segment);
 
             // Convert complex spectrum to magnitude spectrum
@@ -218,191 +243,16 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         return allPeaks;
     }
 
-    List<SustainedNote> TrackSustainedNotes(List<FrequencyPeak> allPeaks) {
-        List<SustainedNote> sustainedNotes = new List<SustainedNote>();
-        List<FrequencyTrack> activeTracks = new List<FrequencyTrack>();
-
-        // Group peaks by time and process chronologically
-        var peaksByTime = allPeaks.GroupBy(p => p.timeStamp).OrderBy(g => g.Key);
-
-        foreach (var timeGroup in peaksByTime) {
-            float currentTime = timeGroup.Key;
-
-            // Mark tracks that have ended (no recent updates)
-            for (int i = activeTracks.Count - 1; i >= 0; i--) {
-                if (currentTime - activeTracks[ i ].lastUpdateTime > trackDecayTime) {
-                    // Track has ended - convert to sustained note if it meets criteria
-                    var track = activeTracks[ i ];
-                    float duration = track.lastUpdateTime - track.startTime;
-
-                    if (track.peaks.Count >= minTrackLength && duration >= minNoteDuration) {
-                        var strongestPeak = track.peaks.OrderByDescending(p => p.magnitude).First();
-                        sustainedNotes.Add(new SustainedNote(
-                            track.startTime,
-                            duration,
-                            track.frequency,
-                            strongestPeak.magnitude
-                        ));
-                    }
-
-                    activeTracks.RemoveAt(i);
-                }
-            }
-
-            // Try to match new peaks with existing tracks
-            foreach (var peak in timeGroup) {
-                FrequencyTrack matchingTrack = null;
-                float minDistance = float.MaxValue;
-
-                foreach (var track in activeTracks) {
-                    float freqDistance = Mathf.Abs(peak.frequency - track.frequency) / track.frequency;
-                    if (freqDistance <= frequencyTolerance && freqDistance < minDistance) {
-                        minDistance = freqDistance;
-                        matchingTrack = track;
-                    }
-                }
-
-                if (matchingTrack != null) {
-                    // Update existing track
-                    matchingTrack.AddPeak(peak);
-                } else {
-                    // Create new track
-                    activeTracks.Add(new FrequencyTrack(peak));
-                }
-            }
-        }
-
-        // Process any remaining active tracks at the end
-        foreach (var track in activeTracks) {
-            float duration = track.lastUpdateTime - track.startTime;
-            if (track.peaks.Count >= minTrackLength && duration >= minNoteDuration) {
-                var strongestPeak = track.peaks.OrderByDescending(p => p.magnitude).First();
-                sustainedNotes.Add(new SustainedNote(
-                    track.startTime,
-                    duration,
-                    track.frequency,
-                    strongestPeak.magnitude
-                ));
-            }
-        }
-
-        return sustainedNotes.OrderBy(n => n.startTime).ToList();
-    }
-
-    AnimationCurve CreateAnimationCurveFromSustainedNotes(List<SustainedNote> notes, float clipLength) {
-        AnimationCurve curve = new AnimationCurve();
-
-        // Add initial keyframe at zero
-        curve.AddKey(new Keyframe(0f, 0f));
-
-        if (combineOverlappingSpikes) {
-            notes = CombineOverlappingSustainedNotes(notes);
-        }
-
-        foreach (var note in notes) {
-            float noteHeight = CalculateSpikeHeight(note.frequency);
-
-            if (createRectangularNotes && note.duration > minNoteDuration) {
-                // Create rectangular note (sustained)
-                float startTime = note.startTime;
-                float endTime = note.startTime + note.duration;
-
-                // Add keyframe just before the note starts
-                if (startTime > 0.001f) {
-                    curve.AddKey(new Keyframe(startTime - 0.001f, 0f));
-                }
-
-                // Add note start (sharp rise)
-                Keyframe startKey = new Keyframe(startTime, noteHeight);
-                startKey.inTangent = float.PositiveInfinity;
-                startKey.outTangent = 0f; // Flat sustain
-                curve.AddKey(startKey);
-
-                // Add note sustain (flat line) - only if duration is significant
-                if (note.duration > 0.02f) {
-                    Keyframe sustainKey = new Keyframe(endTime - 0.001f, noteHeight);
-                    sustainKey.inTangent = 0f; // Flat sustain
-                    sustainKey.outTangent = float.NegativeInfinity; // Sharp fall
-                    curve.AddKey(sustainKey);
-                }
-
-                // Add note end (sharp fall)
-                curve.AddKey(new Keyframe(endTime, 0f));
-
-                // Add keyframe just after the note ends
-                if (endTime < clipLength - 0.001f) {
-                    curve.AddKey(new Keyframe(endTime + 0.001f, 0f));
-                }
-            } else {
-                // Create spike note (instantaneous)
-                float spikeTime = note.startTime;
-
-                // Add keyframe just before the spike
-                if (spikeTime > 0.001f) {
-                    curve.AddKey(new Keyframe(spikeTime - 0.001f, 0f));
-                }
-
-                // Add spike peak
-                Keyframe peakKey = new Keyframe(spikeTime, noteHeight);
-                peakKey.inTangent = float.PositiveInfinity;  // Sharp rise
-                peakKey.outTangent = float.NegativeInfinity; // Sharp fall
-                curve.AddKey(peakKey);
-
-                // Add keyframe just after the spike
-                curve.AddKey(new Keyframe(spikeTime + 0.001f, 0f));
-            }
-        }
-
-        // Add final keyframe at zero
-        curve.AddKey(new Keyframe(clipLength, 0f));
-
-        return curve;
-    }
-
-    List<SustainedNote> CombineOverlappingSustainedNotes(List<SustainedNote> notes) {
-        List<SustainedNote> combinedNotes = new List<SustainedNote>();
-
-        foreach (var note in notes.OrderBy(n => n.startTime)) {
-            bool merged = false;
-
-            for (int i = 0; i < combinedNotes.Count; i++) {
-                var existingNote = combinedNotes[ i ];
-
-                // Check if notes overlap in time and frequency
-                bool timeOverlap = note.startTime < existingNote.startTime + existingNote.duration &&
-                                   note.startTime + note.duration > existingNote.startTime;
-                bool freqSimilar = Mathf.Abs(note.frequency - existingNote.frequency) / existingNote.frequency <= frequencyTolerance;
-
-                if (timeOverlap && freqSimilar) {
-                    // Merge notes
-                    float newStartTime = Mathf.Min(note.startTime, existingNote.startTime);
-                    float newEndTime = Mathf.Max(note.startTime + note.duration, existingNote.startTime + existingNote.duration);
-                    float newDuration = newEndTime - newStartTime;
-
-                    // Use weighted average for frequency and max energy
-                    float totalEnergy = note.energy + existingNote.energy;
-                    float newFrequency = (note.frequency * note.energy + existingNote.frequency * existingNote.energy) / totalEnergy;
-
-                    combinedNotes[ i ] = new SustainedNote(newStartTime, newDuration, newFrequency, totalEnergy);
-                    merged = true;
-                    break;
-                }
-            }
-
-            if (!merged) {
-                combinedNotes.Add(note);
-            }
-        }
-
-        return combinedNotes;
-    }
-
     Complex[] PerformFFT(float[] data) {
         int n = data.Length;
         Complex[] x = new Complex[ n ];
+
+        // Convert to complex numbers
         for (int i = 0; i < n; i++) {
             x[ i ] = new Complex(data[ i ], 0);
         }
+
+        // Perform FFT using Cooley-Tukey algorithm
         return FFT(x);
     }
 
@@ -410,16 +260,20 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         int n = x.Length;
         if (n <= 1) return x;
 
+        // Divide
         Complex[] even = new Complex[ n / 2 ];
         Complex[] odd = new Complex[ n / 2 ];
+
         for (int i = 0; i < n / 2; i++) {
             even[ i ] = x[ i * 2 ];
             odd[ i ] = x[ i * 2 + 1 ];
         }
 
+        // Conquer
         Complex[] evenResult = FFT(even);
         Complex[] oddResult = FFT(odd);
 
+        // Combine
         Complex[] result = new Complex[ n ];
         for (int i = 0; i < n / 2; i++) {
             Complex t = Complex.Exp(-2.0 * Math.PI * i / n * Complex.ImaginaryOne) * oddResult[ i ];
@@ -432,29 +286,36 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
 
     void ApplyWindowFunction(float[] data, FFTWindow windowType) {
         int n = data.Length;
+
         switch (windowType) {
             case FFTWindow.Rectangular:
+                // No windowing
                 break;
+
             case FFTWindow.Triangle:
                 for (int i = 0; i < n; i++) {
                     data[ i ] *= 1f - Mathf.Abs((2f * i - n + 1f) / (n + 1f));
                 }
                 break;
+
             case FFTWindow.Hamming:
                 for (int i = 0; i < n; i++) {
                     data[ i ] *= 0.54f - 0.46f * Mathf.Cos(2f * Mathf.PI * i / (n - 1f));
                 }
                 break;
+
             case FFTWindow.Hanning:
                 for (int i = 0; i < n; i++) {
                     data[ i ] *= 0.5f * (1f - Mathf.Cos(2f * Mathf.PI * i / (n - 1f)));
                 }
                 break;
+
             case FFTWindow.Blackman:
                 for (int i = 0; i < n; i++) {
                     data[ i ] *= 0.42f - 0.5f * Mathf.Cos(2f * Mathf.PI * i / (n - 1f)) + 0.08f * Mathf.Cos(4f * Mathf.PI * i / (n - 1f));
                 }
                 break;
+
             case FFTWindow.BlackmanHarris:
                 for (int i = 0; i < n; i++) {
                     float x = 2f * Mathf.PI * i / (n - 1f);
@@ -469,14 +330,16 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
         int minBin = FrequencyToBin(minFrequency, sampleRate, spectrum.Length);
         int maxBin = FrequencyToBin(maxFrequency, sampleRate, spectrum.Length);
 
+        // Find local maxima
         for (int i = minBin + 1; i < maxBin - 1 && peaks.Count < maxPeaksPerFrame; i++) {
             if (spectrum[ i ] > peakThreshold &&
                 spectrum[ i ] > spectrum[ i - 1 ] &&
                 spectrum[ i ] > spectrum[ i + 1 ]) {
-
+                // Check minimum distance from other peaks
                 bool tooClose = false;
                 foreach (var existingPeak in peaks) {
                     if (Mathf.Abs(FrequencyToBin(existingPeak.frequency, sampleRate, spectrum.Length) - i) < minPeakDistance) {
+                        // Keep the stronger peak
                         if (spectrum[ i ] > existingPeak.magnitude) {
                             peaks.Remove(existingPeak);
                             break;
@@ -494,8 +357,204 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             }
         }
 
+        // Sort by magnitude (strongest peaks first)
         peaks.Sort((a, b) => b.magnitude.CompareTo(a.magnitude));
+
         return peaks;
+    }
+
+    List<NoteEvent> TrackFrequenciesOverTime(List<FrequencyPeak> allPeaks) {
+        List<NoteEvent> noteEvents = new List<NoteEvent>();
+        List<ActiveNote> activeNotes = new List<ActiveNote>();
+
+        // Group peaks by time and sort
+        var peaksByTime = allPeaks.GroupBy(p => p.timeStamp).OrderBy(g => g.Key);
+
+        foreach (var timeGroup in peaksByTime) {
+            float currentTime = timeGroup.Key;
+
+            // Update active notes - mark as ended if they've decayed too much
+            for (int i = activeNotes.Count - 1; i >= 0; i--) {
+                var note = activeNotes[i];
+                bool foundContinuation = false;
+
+                // Look for peaks that could continue this note
+                foreach (var peak in timeGroup) {
+                    float freqDistance = Mathf.Abs(peak.frequency - note.frequency) / note.frequency;
+                    if (freqDistance <= frequencyTolerance) {
+                        // Check if magnitude is sufficient to continue the note
+                        if (peak.magnitude >= note.peakMagnitude * noteDecayThreshold) {
+                            note.UpdateWithPeak(peak);
+                            foundContinuation = true;
+                            break;
+                        }
+                    }
+                }
+
+                // If no continuation found or too much time passed, end the note
+                if (!foundContinuation || currentTime - note.lastUpdateTime > trackDecayTime) {
+                    if (note.duration >= minNoteDuration) {
+                        // Check if this note is too close to an existing note event
+                        bool tooCloseToExisting = false;
+                        foreach (var existingEvent in noteEvents) {
+                            float freqDist = Mathf.Abs(existingEvent.frequency - note.frequency) / note.frequency;
+                            float timeDist = Mathf.Abs(existingEvent.time - note.startTime);
+                            
+                            if (freqDist <= frequencyTolerance && timeDist < noteGapTime) {
+                                // Keep the stronger note
+                                if (note.peakMagnitude > existingEvent.energy) {
+                                    noteEvents.Remove(existingEvent);
+                                    break;
+                                } else {
+                                    tooCloseToExisting = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!tooCloseToExisting) {
+                            noteEvents.Add(new NoteEvent(note.startTime, note.frequency, note.peakMagnitude));
+                        }
+                    }
+                    activeNotes.RemoveAt(i);
+                }
+            }
+
+            // Process new peaks that might start new notes
+            foreach (var peak in timeGroup.OrderByDescending(p => p.magnitude)) {
+                // Check if this peak could be part of an existing active note
+                bool isPartOfExistingNote = false;
+                foreach (var activeNote in activeNotes) {
+                    float freqDistance = Mathf.Abs(peak.frequency - activeNote.frequency) / activeNote.frequency;
+                    if (freqDistance <= frequencyTolerance) {
+                        isPartOfExistingNote = true;
+                        break;
+                    }
+                }
+
+                if (!isPartOfExistingNote) {
+                    // Check if this could be a note onset (significantly stronger than background)
+                    float backgroundLevel = CalculateBackgroundLevel(allPeaks, peak.frequency, currentTime);
+                    
+                    if (peak.magnitude >= backgroundLevel * noteOnsetThreshold) {
+                        // Start a new note
+                        activeNotes.Add(new ActiveNote(peak));
+                    }
+                }
+            }
+        }
+
+        // End any remaining active notes
+        foreach (var note in activeNotes) {
+            if (note.duration >= minNoteDuration) {
+                bool tooCloseToExisting = false;
+                foreach (var existingEvent in noteEvents) {
+                    float freqDist = Mathf.Abs(existingEvent.frequency - note.frequency) / note.frequency;
+                    float timeDist = Mathf.Abs(existingEvent.time - note.startTime);
+                    
+                    if (freqDist <= frequencyTolerance && timeDist < noteGapTime) {
+                        if (note.peakMagnitude > existingEvent.energy) {
+                            noteEvents.Remove(existingEvent);
+                            break;
+                        } else {
+                            tooCloseToExisting = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!tooCloseToExisting) {
+                    noteEvents.Add(new NoteEvent(note.startTime, note.frequency, note.peakMagnitude));
+                }
+            }
+        }
+
+        return noteEvents.OrderBy(n => n.time).ToList();
+    }
+
+    float CalculateBackgroundLevel(List<FrequencyPeak> allPeaks, float targetFrequency, float currentTime) {
+        // Calculate average magnitude in frequency range around the target frequency
+        float freqRange = targetFrequency * 0.2f; // ±20% frequency range
+        float timeRange = 0.5f; // ±0.5 second time range
+
+        var relevantPeaks = allPeaks.Where(p => 
+            Mathf.Abs(p.frequency - targetFrequency) <= freqRange &&
+            Mathf.Abs(p.timeStamp - currentTime) <= timeRange);
+
+        if (!relevantPeaks.Any()) return peakThreshold;
+
+        // Use median magnitude to avoid outliers
+        var magnitudes = relevantPeaks.Select(p => p.magnitude).OrderBy(m => m).ToList();
+        int medianIndex = magnitudes.Count / 2;
+        return magnitudes.Count > 0 ? magnitudes[medianIndex] : peakThreshold;
+    }
+
+    AnimationCurve CreateAnimationCurveFromNotes(List<NoteEvent> notes, float clipLength) {
+        AnimationCurve curve = new AnimationCurve();
+
+        // Add initial keyframe at zero
+        curve.AddKey(new Keyframe(0f, 0f));
+
+        if (combineOverlappingSpikes) {
+            notes = CombineOverlappingNotes(notes);
+        }
+
+        foreach (var note in notes) {
+            float spikeHeight = CalculateSpikeHeight(note.frequency);
+            float startTime = note.time;
+            float endTime = note.time + peakDuration;
+
+            // Add keyframe just before the peak starts (sharp rise)
+            curve.AddKey(new Keyframe(startTime - 0.001f, 0f, 0f, float.PositiveInfinity));
+
+            // Add peak start keyframe (plateau begins)
+            Keyframe peakStartKey = new Keyframe(startTime, spikeHeight, float.PositiveInfinity, 0f);
+            curve.AddKey(peakStartKey);
+
+            // Add peak end keyframe (plateau ends)
+            Keyframe peakEndKey = new Keyframe(endTime, spikeHeight, 0f, float.NegativeInfinity);
+            curve.AddKey(peakEndKey);
+
+            // Add keyframe just after the peak ends (sharp fall)
+            curve.AddKey(new Keyframe(endTime + 0.001f, 0f, float.NegativeInfinity, 0f));
+        }
+
+        // Add final keyframe at zero
+        curve.AddKey(new Keyframe(clipLength, 0f));
+
+        return curve;
+    }
+
+    List<NoteEvent> CombineOverlappingNotes(List<NoteEvent> notes) {
+        List<NoteEvent> combinedNotes = new List<NoteEvent>();
+
+        foreach (var note in notes.OrderBy(n => n.time)) {
+            bool merged = false;
+
+            for (int i = 0; i < combinedNotes.Count; i++) {
+                float noteEnd = note.time + peakDuration;
+                float existingEnd = combinedNotes[i].time + peakDuration;
+                
+                // Check if notes overlap
+                if (note.time < existingEnd && noteEnd > combinedNotes[i].time) {
+                    // Combine notes: use weighted average of frequency and max energy
+                    var existingNote = combinedNotes[ i ];
+                    float totalEnergy = note.energy + existingNote.energy;
+                    float newFrequency = (note.frequency * note.energy + existingNote.frequency * existingNote.energy) / totalEnergy;
+                    float newTime = Mathf.Min(note.time, existingNote.time); // Start at earliest time
+
+                    combinedNotes[ i ] = new NoteEvent(newTime, newFrequency, totalEnergy);
+                    merged = true;
+                    break;
+                }
+            }
+
+            if (!merged) {
+                combinedNotes.Add(note);
+            }
+        }
+
+        return combinedNotes;
     }
 
     float CalculateSpikeHeight(float frequency) {
@@ -503,6 +562,7 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             float minLog = Mathf.Log(minFrequency);
             float maxLog = Mathf.Log(maxFrequency);
             float freqLog = Mathf.Log(frequency);
+
             float normalizedPitch = (freqLog - minLog) / (maxLog - minLog);
             return Mathf.Clamp01(normalizedPitch) * maxSpikeHeight;
         } else {
@@ -537,11 +597,13 @@ public class EnhancedAudioToCurveGenerator : EditorWindow {
             "Save the generated animation curve as an asset");
 
         if (!string.IsNullOrEmpty(path)) {
-            CurveAsset asset = ScriptableObject.CreateInstance<CurveAsset>();
+            AnimationCurveAsset asset = ScriptableObject.CreateInstance<AnimationCurveAsset>();
             asset.curve = generatedCurve;
+
             AssetDatabase.CreateAsset(asset, path);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
+
             EditorGUIUtility.PingObject(asset);
             analysisStatus = $"Curve saved to: {path}";
         }
@@ -577,24 +639,10 @@ public class FrequencyTrack {
 
     public void AddPeak(FrequencyPeak peak) {
         peaks.Add(peak);
+        // Update frequency as weighted average
         float totalMagnitude = peaks.Sum(p => p.magnitude);
         frequency = peaks.Sum(p => p.frequency * p.magnitude) / totalMagnitude;
         lastUpdateTime = peak.timeStamp;
-    }
-}
-
-[System.Serializable]
-public class SustainedNote {
-    public float startTime;
-    public float duration;
-    public float frequency;
-    public float energy;
-
-    public SustainedNote(float startTime, float duration, float frequency, float energy) {
-        this.startTime = startTime;
-        this.duration = duration;
-        this.frequency = frequency;
-        this.energy = energy;
     }
 }
 
@@ -608,5 +656,40 @@ public class NoteEvent {
         this.time = time;
         this.frequency = frequency;
         this.energy = energy;
+    }
+}
+
+[System.Serializable]
+public class ActiveNote {
+    public float frequency;
+    public float startTime;
+    public float lastUpdateTime;
+    public float peakMagnitude;
+    public float currentMagnitude;
+    public List<FrequencyPeak> peaks = new List<FrequencyPeak>();
+
+    public float duration => lastUpdateTime - startTime;
+
+    public ActiveNote(FrequencyPeak initialPeak) {
+        frequency = initialPeak.frequency;
+        startTime = initialPeak.timeStamp;
+        lastUpdateTime = initialPeak.timeStamp;
+        peakMagnitude = initialPeak.magnitude;
+        currentMagnitude = initialPeak.magnitude;
+        peaks.Add(initialPeak);
+    }
+
+    public void UpdateWithPeak(FrequencyPeak peak) {
+        peaks.Add(peak);
+        lastUpdateTime = peak.timeStamp;
+        currentMagnitude = peak.magnitude;
+
+        if (peak.magnitude > peakMagnitude) {
+            peakMagnitude = peak.magnitude;
+        }
+
+        // Update frequency as weighted average, giving more weight to stronger peaks
+        float totalWeight = peaks.Sum(p => p.magnitude);
+        frequency = peaks.Sum(p => p.frequency * p.magnitude) / totalWeight;
     }
 }

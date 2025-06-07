@@ -1452,7 +1452,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 487c043670ff90c49874d79b08e8a761, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  curveAsset: {fileID: 11400000, guid: 8ccb0044fc4f30d44836573d265c0569, type: 2}
+  curveAsset: {fileID: 11400000, guid: 53152675ff62f1c4290c481d507e4e51, type: 2}
   musicSource: {fileID: 396822151}
   noteSpeed: 5
   noteLifetime: 10
@@ -1483,6 +1483,8 @@ MonoBehaviour:
   curveThreshold: 0.1
   sampleRate: 500
   minLaneInterval: 0.15
+  durationSampleWindow: 0.1
+  minNoteDuration: 0.2
   perfectScore: 100
   goodScore: 50
   missScore: -5

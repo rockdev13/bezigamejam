@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 public class RythmGameManager : MonoBehaviour {
     [Header("Game Settings")]
-    public CurveAsset curveAsset;
+    public AnimationCurveAsset curveAsset;
     public AudioSource musicSource;
     public float noteSpeed = 5f;
     public float noteLifetime = 10f;

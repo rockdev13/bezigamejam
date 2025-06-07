@@ -1,7 +1,7 @@
 using UnityEngine;
 
 [CreateAssetMenu(fileName = "RhythmGameCurve", menuName = "Rhythm Game/Curve Asset")]
-public class CurveAsset : ScriptableObject {
+public class AnimationCurveAsset : ScriptableObject {
     [Header("Animation Curve")]
     public AnimationCurve curve = new AnimationCurve();
 
@@ -36,3 +36,4 @@ public class CurveAsset : ScriptableObject {
         return spikeCount;
     }
 }
+
