@@ -51,6 +51,7 @@ public class RythmGameManager : MonoBehaviour {
     private bool isPlaying;
     private bool musicStarted;
     private int totalScore;
+    private bool isCurrentlyAboveThreshold = false;
 
     public event System.Action<int, string> OnScoreUpdate;
     public event System.Action<int> OnNoteHit;
@@ -158,18 +159,25 @@ public class RythmGameManager : MonoBehaviour {
         activeNotes.Clear();
     }
 
-    void SampleCurveForNotes() {
+    void SampleCurveForNotes()
+    {
         float deltaTime = 1f / sampleRate;
 
-        while (lastSampleTime + deltaTime <= noteSpawnTime) {
+        while (lastSampleTime + deltaTime <= noteSpawnTime)
+        {
             lastSampleTime += deltaTime;
             float curveValue = noteSpawnCurve.Evaluate(lastSampleTime);
 
-            if (curveValue > curveThreshold) {
+            bool aboveThreshold = curveValue > curveThreshold;
+
+            if (aboveThreshold && !isCurrentlyAboveThreshold)
+            {
                 float targetHitTime = lastSampleTime;
                 float duration = CalculateNoteDuration(lastSampleTime);
                 SpawnNoteFromCurveValue(curveValue, targetHitTime, duration);
             }
+
+            isCurrentlyAboveThreshold = aboveThreshold;
         }
     }
 
